@@ -24,6 +24,8 @@ from sklearn.metrics import confusion_matrix
 from datetime import datetime
 from sklearn.tree import DecisionTreeClassifier
 
+from sklearn.base import clone
+
 from scipy.optimize import minimize, rosen, differential_evolution
 
 
@@ -234,7 +236,7 @@ def f(x):
     return x[0] * x[0] - 2 * x[0] + 4 + x[1] * x[1]
 
 
-if __name__ == '__main__':
+#if __name__ == '__main__':
     # main()
 
     data = read_data("classificacao-entrada.xls")
@@ -305,3 +307,72 @@ if __name__ == '__main__':
 
     print differential_evolution(f, bounds, disp=True, popsize=20)    
     # print minimize(f, x0, method='BFGS', tol=1e-6).x
+
+
+class MultiRegionClassifier:
+
+    def __init__(self, alg, n_regions, random_state = 1):
+
+        self.n_regions = n_regions
+        self.kmeans_estimator = None
+        self.random_state = random_state
+        self.algs = []
+
+        for i in range(n_regions):
+            self.algs.append(clone(alg))
+
+    def fit(self, X, Y):
+        
+        df_X = pd.DataFrame(X)
+        df_Y = pd.DataFrame(Y)
+
+        self.kmeans_estimator = KMeans(n_clusters=self.n_regions, random_state=self.random_state)
+
+        self.kmeans_estimator.fit(X)
+
+        clusters = self.kmeans_estimator.predict(X)
+
+        dict_clusters = [[] for x in range(self.n_regions)]
+
+        df_X["clusters___"] = clusters
+        df_Y["clusters___"] = clusters
+
+
+        for i in range(self.n_regions):
+            Xi = X.loc[X["clusters___"] == i]
+            Yi = df_Y.loc[X["clusters___"] == i]
+
+            pred_X =Xi.columns[:-1]
+            pred_Y = Yi.columns[:-1]
+            self.algs[i].fit(Xi[pred_X], Yi[pred_Y].astype(int))
+
+        return self
+
+        
+    def predict(self, X):
+        df_X = pd.DataFrame(X)
+
+
+        clusters = self.kmeans_estimator.predict(df_X)
+ 
+        y = []
+
+        for i in range(len(X)):
+            y.append(self.algs[clusters[i]].predict([df_X.iloc[i]])[0])
+
+        return y
+
+
+if __name__ == '__main__':
+    print "Hello World!"
+
+    data = pd.read_csv("TestDataSet.csv")
+    alg = SVC(kernel='linear')
+    clf = MultiRegionClassifier(alg, 2)
+
+    clf.fit(data[["X", "Y"]], data["classe"])
+
+    pred = pd.read_csv("PredDataSet.csv")
+
+    print clf.predict(pred)
+
