@@ -49,14 +49,15 @@ def normalize_data(train_data, columns, type="z-score"):
     return train_normalized
 
 
-def train_with_algorithms(train_data, predictors, predict_class, alg_names, algs, log=False):
+def traine_with_algorithms(train_data, predictors, predict_class, alg_names, algs, log=False, balance=False):
     accuracies = []
     results = {}
     for alg, nome in zip(algs, alg_names):
         if log:
             print "Treinando %s  %s" % (nome, str(datetime.now().time()))
-        accuracy = test_algorithm(alg, train_data, predictors, predict_class)
-        results[nome] = accuracy[0]
+        accuracy = test_algorithm(
+            alg, train_data, predictors, predict_class, balance=balance)
+        results[nome] = accuracy
         accuracies.append(accuracy[0])
 
     """print "Treinando %s  %s" % ("Voting 3", str(datetime.now().time()))
@@ -71,7 +72,7 @@ def train_with_algorithms(train_data, predictors, predict_class, alg_names, algs
     return results
 
 
-def traine_with_all_the_data(train_data, predictors, predict_class, seed=1):
+def traine_with_selected_algorithms(train_data, predictors, predict_class, seed=1, balance=False):
     algs = []
     algs.append(KNeighborsClassifier(n_neighbors=5))
     algs.append(LogisticRegression(random_state=seed))
@@ -82,11 +83,11 @@ def traine_with_all_the_data(train_data, predictors, predict_class, seed=1):
         random_state=1, n_estimators=25, max_depth=3))
     algs.append(MLPClassifier(solver='lbfgs', alpha=1e-5,
                               hidden_layer_sizes=(3, 5), random_state=1))
-    #algs.append(SVC(kernel='linear'))
+    # algs.append(SVC(kernel='linear'))
     #algs.append(SVC(kernel='poly', coef0=2))
     #algs.append(SVC(kernel='poly', coef0=3))
-    #algs.append(SVC(kernel='rbf'))
-    #algs.append(SVC(kernel='sigmoid'))
+    # algs.append(SVC(kernel='rbf'))
+    # algs.append(SVC(kernel='sigmoid'))
 
     names = ["Neighbors Classifier", "Logistic Regression", "Naive-Bayes",
              "Random Forest", "Gradient Boosting", "Neural Network"]
@@ -96,10 +97,13 @@ def traine_with_all_the_data(train_data, predictors, predict_class, seed=1):
     #names.append("SVM RBF")
     #names.append("SVM Sigmoid")
 
-    return train_with_algorithms(train_data, predictors, predict_class, names, algs)
+    return traine_with_algorithms(train_data, predictors, predict_class, names, algs, balance=balance)
 
+def sensibility(confusion_matrix):
+    c = confusion_matrix
+    return (float(c[1,1])/(c[1,0]+c[1,1]))
 
-def test_algorithm(alg, train_data, predictors, predict_class, treat_output=None, seed=1, n_folds=10):
+def test_algorithm(alg, train_data, predictors, predict_class, treat_output=None, seed=1, n_folds=10, balance=False):
 
     # Initialize our algorithm class
 
@@ -115,14 +119,19 @@ def test_algorithm(alg, train_data, predictors, predict_class, treat_output=None
     for train, test in kf.split(train_data):
         # The predictors we're using the train the algorithm.  Note how we only
         # take the rows in the train folds.
+        if balance:
+            balanced = balance_class(train_data.iloc[train, :], predict_class)
+            train_predictors = (balanced[predictors])
+            train_target = balanced[predict_class].astype(float)
 
-        train_predictors = (train_data[predictors].iloc[train, :])
-        # The target we're using to train the algorithm.
-        train_target = train_data[predict_class].iloc[train].astype(float)
+        else:
+            train_predictors = train_data.iloc[train, :]
+            train_target = train_predictors[predict_class].astype(float)
+            train_predictors = train_predictors[predictors]
 
         # Training the algorithm using the predictors and target.
-        alg = alg.fit(train_predictors, train_target)
-
+        #alg = alg.fit(train_predictors, train_target)
+        alg.fit(train_predictors, train_target)
         # We can now make predictions on the test fold
         test_predictions = alg.predict(train_data[predictors].iloc[test, :])
 
@@ -142,16 +151,34 @@ def test_algorithm(alg, train_data, predictors, predict_class, treat_output=None
     return sum(acus) / len(acus), acus, predictions, confusion
 
 
+def balance_class(data, predict_class):
+
+    qtd0 = len(data.loc[data[predict_class] == 0])
+    qtd1 = len(data.loc[data[predict_class] == 1])
+
+    menor_classe = 0
+
+    if qtd1 < qtd0:
+        menor_classe = 1
+
+    adicionar = qtd1 - qtd0 if qtd1 > qtd0 else qtd0 - qtd1
+
+    duplicate_entries = data.copy()
+    menor_classe_entries = duplicate_entries.loc[
+        duplicate_entries[predict_class] == menor_classe].copy()
+
+    duplicate_entries = duplicate_entries.append(
+        menor_classe_entries.sample(adicionar).copy(),  ignore_index=True)
+
+    return duplicate_entries
+
+
 def read_data(filepath):
     data = pd.read_excel(filepath)
     for i in range(2, 13):
         name = "X%d" % i
         data[name] = data[name].apply(lambda x: float(x.replace(",", ".")))
     return data
-
-
-def get_train_and_test(data):
-    return data.loc[(data.Classe == 0) | (data.Classe == 1) | (data.Classe == 2)], data.loc[(data.Classe == 3)],
 
 
 def plot_2d(train_data, predictors, predict_class, class_names, test_data=None, xlim=None, ylim=None):
@@ -161,157 +188,65 @@ def plot_2d(train_data, predictors, predict_class, class_names, test_data=None, 
     reduced_data = pd.DataFrame(data=reduced_data, columns=["X", "Y"])
 
     reduced_data[predict_class] = train_data[predict_class]
-    
+
     classes = []
     for i in range(qtd_class):
         classes.append(reduced_data.loc[reduced_data[predict_class] == i])
 
-    f, axes =  plt.subplots(1, qtd_class+1, figsize=(15,10))
+    f, axes = plt.subplots(1, qtd_class + 1, figsize=(15, 10))
 
     ax = axes[0]
     ax.set_title("Todos os dados")
     colors = "rgb"
     for i in range(qtd_class):
         ax.scatter(classes[i]["X"], classes[i]["Y"], c=colors[i])
-    
+
     for i in range(1, qtd_class + 1):
-        axes[i].set_title(class_names[i-1])
-        axes[i].scatter(classes[i-1]["X"], classes[i-1]["Y"], c=colors[i-1])
+        axes[i].set_title(class_names[i - 1])
+        axes[i].scatter(classes[i - 1]["X"], classes[i - 1]
+                        ["Y"], c=colors[i - 1])
 
     if test_data is not None:
         reduced_data = pca.transform(test_data[predictors])
-        reduced_data = pd.DataFrame(data=reduced_data, columns=["X", "Y"]) 
-        ax.scatter(classes[i]["X"], classes[i]["Y"], color='y', marker='x', linewidths=2)
-    
+        reduced_data = pd.DataFrame(data=reduced_data, columns=["X", "Y"])
+        ax.scatter(classes[i]["X"], classes[i]["Y"],
+                   color='y', marker='x', linewidths=2)
+
     if xlim:
         for i in range(2):
             for j in range(2):
-                axes[i,j].set_xlim(xlim)
+                axes[i, j].set_xlim(xlim)
     if ylim:
         for i in range(2):
-            for j in range(2):        
-                axes[i,j].set_ylim(ylim)
-
-def main():
-    data = read_data("classificacao-entrada.xls")
-    predictors = ["X%d" % i for i in range(1, 13)]
-    predictors_id = ["id"] + predictors
-    seed = 1
-
-    print data.head()
-
-    data.loc[data["Classe"] == "C", "Classe"] = 0
-    data.loc[data["Classe"] == "V", "Classe"] = 1
-    data.loc[data["Classe"] == "N", "Classe"] = 2
-    data.loc[data["Classe"] == "?", "Classe"] = 3
-
-    train, test = get_train_and_test(data)
-
-    alg = RandomForestClassifier(
-        random_state=1, n_estimators=50, min_samples_split=4, min_samples_leaf=2)
-    a = test_algorithm(alg, train, predictors, "Classe")
-    print "Dados nao tratados %f" % a[0]
-
-    #alg = RandomForestClassifier(random_state=1, n_estimators=50, min_samples_split=4, min_samples_leaf=2)
-    #a = test_algorithm(alg, train, predictors_id, "Classe")
-    results = traine_with_all_the_data(train, predictors_id, "Classe")
-
-    for method, accuracy in results.items():
-        print "%-25s %5.3f" % (method, accuracy)
-
-    print "Previsao com ID    %f" % a[0]
-
-    data = normalize_data(data, predictors[1:], "MaxMin")
-
-    alg = RandomForestClassifier(
-        random_state=1, n_estimators=50, min_samples_split=4, min_samples_leaf=2)
-    a = test_algorithm(alg, train, predictors, "Classe")
-    print "Previsao normal    %f" % a[0]
+            for j in range(2):
+                axes[i, j].set_ylim(ylim)
 
 
+def balance_class(data, predict_class):
 
+    qtd0 = len(data.loc[data[predict_class] == 0])
+    qtd1 = len(data.loc[data[predict_class] == 1])
 
+    menor_classe = 0
 
-def f(x):
-    return x[0] * x[0] - 2 * x[0] + 4 + x[1] * x[1]
+    if qtd1 < qtd0:
+        menor_classe = 1
 
+    adicionar = qtd1 - qtd0 if qtd1 > qtd0 else qtd0 - qtd1
 
-#if __name__ == '__main__':
-    # main()
+    duplicate_entries = data.copy()
+    menor_classe_entries = duplicate_entries.loc[
+        duplicate_entries[predict_class] == menor_classe].copy()
 
-    data = read_data("classificacao-entrada.xls")
-    predictors = ["X%d" % i for i in range(1, 13)]
-    predictors_id = ["id"] + predictors
-    seed = 1
+    duplicate_entries = duplicate_entries.append(
+        menor_classe_entries.sample(adicionar).copy(),  ignore_index=True)
 
-    data.loc[data["Classe"] == "C", "Classe"] = 0
-    data.loc[data["Classe"] == "V", "Classe"] = 1
-    data.loc[data["Classe"] == "N", "Classe"] = 2
-    data.loc[data["Classe"] == "?", "Classe"] = 3
-
-    train, test = get_train_and_test(data)
-
-    predictors = ["X%d" % i for i in range(1, 13)]
-
-    def f(x):
-        print x
-        return train_with_algorithms(train, predictors, "Classe", ["SVM Linear"], [SVC(kernel='linear', gamma=x[0], coef0=x[1])])["SVM Linear"]
-
-    bounds = [(0, 1000), (-1000.0, 1000.0)]
-
-
-
-    def f(x):
-        x[0] = int(x[0])
-        x[1] = int(x[1])
-
-
-        predictors = ["X%d" % i for i in range(1, 13)]
-
-        class_weight = {}
-
-        for i in range(3):
-            class_weight[i] = x[i + 2]
-
-        alg = DecisionTreeClassifier(criterion='entropy', splitter='best', max_depth=x[0], min_samples_split=x[1], min_weight_fraction_leaf=0.0,
-                                     max_features=None, random_state=seed, max_leaf_nodes=None, min_impurity_split=1e-07, class_weight=class_weight, presort=False)
-
-        return 1/train_with_algorithms(train, predictors, "Classe", ["Decision Tree"], [alg])["Decision Tree"]
-
-    bounds = [(1, 50), (2, 200)]
-
-    for i in range(3):
-        bounds.append((0.00001, 10.0))
-
-    def f(x):
-
-        print x
-        predictors = ["X%d" % i for i in range(1, 13)]
-
-        class_weight = {}
-
-        for i in range(3):
-            class_weight[i] = x[i + 2]
-
-        return 1/train_with_algorithms(train, predictors, "Classe", ["Random Forest"], [RandomForestClassifier(
-            random_state=1, n_estimators=int(x[0]), max_depth=int(x[1]), class_weight=class_weight)])["Random Forest"]
-
-    bounds = [(1, 200), (1, 50)]
-    for i in range(3):
-        bounds.append((0.00001, 10.0))
-
-    print differential_evolution(f, bounds, disp=True, popsize=20)
-
-    data = normalize_data(data, predictors[1:])
-    train, test = get_train_and_test(data)
-
-    print differential_evolution(f, bounds, disp=True, popsize=20)    
-    # print minimize(f, x0, method='BFGS', tol=1e-6).x
+    return duplicate_entries
 
 
 class MultiRegionClassifier:
 
-    def __init__(self, alg, n_regions, random_state = 1):
+    def __init__(self, alg, n_regions, random_state=1):
 
         self.n_regions = n_regions
         self.kmeans_estimator = None
@@ -322,11 +257,12 @@ class MultiRegionClassifier:
             self.algs.append(clone(alg))
 
     def fit(self, X, Y):
-        
+
         df_X = pd.DataFrame(X)
         df_Y = pd.DataFrame(Y)
 
-        self.kmeans_estimator = KMeans(n_clusters=self.n_regions, random_state=self.random_state)
+        self.kmeans_estimator = KMeans(
+            n_clusters=self.n_regions, random_state=self.random_state)
 
         self.kmeans_estimator.fit(X)
 
@@ -337,24 +273,21 @@ class MultiRegionClassifier:
         df_X["clusters___"] = clusters
         df_Y["clusters___"] = clusters
 
-
         for i in range(self.n_regions):
             Xi = X.loc[X["clusters___"] == i]
             Yi = df_Y.loc[X["clusters___"] == i]
 
-            pred_X =Xi.columns[:-1]
+            pred_X = Xi.columns[:-1]
             pred_Y = Yi.columns[:-1]
             self.algs[i].fit(Xi[pred_X], Yi[pred_Y].astype(int))
 
         return self
 
-        
     def predict(self, X):
         df_X = pd.DataFrame(X)
 
-
         clusters = self.kmeans_estimator.predict(df_X)
- 
+
         y = []
 
         for i in range(len(X)):
@@ -375,4 +308,3 @@ if __name__ == '__main__':
     pred = pd.read_csv("PredDataSet.csv")
 
     print clf.predict(pred)
-
