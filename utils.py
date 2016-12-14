@@ -81,17 +81,17 @@ def traine_with_selected_algorithms(train_data, predictors, predict_class, seed=
                                        n_estimators=50, min_samples_split=4, min_samples_leaf=2))
     algs.append(GradientBoostingClassifier(
         random_state=1, n_estimators=25, max_depth=3))
-    algs.append(MLPClassifier(solver='lbfgs', alpha=1e-5,
-                              hidden_layer_sizes=(3, 5), random_state=1))
-    algs.append(SVC(kernel='linear'))
+    #algs.append(MLPClassifier(solver='lbfgs', alpha=1e-5,
+    #                          hidden_layer_sizes=(3, 5), random_state=1))
+    #algs.append(SVC(kernel='linear'))
     #algs.append(SVC(kernel='poly', coef0=2))
     #algs.append(SVC(kernel='poly', coef0=3))
     # algs.append(SVC(kernel='rbf'))
     # algs.append(SVC(kernel='sigmoid'))
 
     names = ["Neighbors Classifier", "Logistic Regression", "Naive-Bayes",
-             "Random Forest", "Gradient Boosting", "Neural Network"]
-    names.append("SVM Linear")
+             "Random Forest", "Gradient Boosting"]
+    #names.append("SVM Linear")
     #names.append("SVM Quadratic")
     #names.append("SVM Cubic")
     #names.append("SVM RBF")
